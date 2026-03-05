@@ -209,8 +209,8 @@ describe("detectNewResourceProvider", () => {
     const result = await detectNewResourceProvider({ context, core });
 
     expect(result.status).toBe("new-rt-all-leases-valid");
-    expect(result.labelActions.ARMModelingAutoSignedOff).toBe("add");
-    expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
+    expect(result.labelActions.ARMModelingReviewRequired).toBe("add");
+    expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
     expect(core.setFailed).not.toHaveBeenCalled();
   });
 
