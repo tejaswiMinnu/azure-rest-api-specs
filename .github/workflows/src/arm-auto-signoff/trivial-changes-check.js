@@ -1,5 +1,4 @@
 // For now, treat all paths as posix, since this is the format returned from git commands
-import debug from "debug";
 import { simpleGit } from "simple-git";
 import { inspect } from "util";
 import {
@@ -14,9 +13,6 @@ import { CoreLogger } from "../core-logger.js";
 import { PullRequestChanges } from "./pr-changes.js";
 
 /** @typedef {import("./pr-changes.js").PullRequestChanges} PullRequestChangesType */
-
-// Enable simple-git debug logging to improve console output
-debug.enable("simple-git");
 
 /**
  * Non-functional JSON property keys that are safe to change without affecting API behavior

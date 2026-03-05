@@ -1,5 +1,4 @@
 // For now, treat all paths as posix, since this is the format returned from git commands
-import debug from "debug";
 import { dirname, join, relative, resolve } from "path";
 import { simpleGit } from "simple-git";
 import {
@@ -12,9 +11,6 @@ import {
 import { Readme } from "../../../shared/src/readme.js";
 import { Swagger } from "../../../shared/src/swagger.js";
 import { CoreLogger } from "../core-logger.js";
-
-// Enable simple-git debug logging to improve console output
-debug.enable("simple-git");
 
 /**
  * @param {import('@actions/github-script').AsyncFunctionArguments['core']} core
