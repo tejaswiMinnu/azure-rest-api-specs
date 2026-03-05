@@ -340,11 +340,11 @@ async function checkNewResourceTypes(repoRoot, mergeBase, rmFiles, core) {
         `Please schedule a discussion at ARM API Modeling Office Hours before merging: ${ARM_OFFICE_HOURS_URL}`,
     );
   } else {
-    core.info("New resource types detected — ARM modeling review required.");
+    core.info("New resource types detected with valid ARM lease — auto-signed-off.");
   }
 
   return {
     status: allLeasesValid ? "new-rt-all-leases-valid" : "new-rt-invalid-lease",
-    labelActions: getLabelActions("review-required"),
+    labelActions: getLabelActions(allLeasesValid ? "auto-signed-off" : "review-required"),
   };
 }
