@@ -188,10 +188,7 @@ export async function validateLeaseContent(leaseFile, relativePath, workspaceRoo
         serviceExists = true;
       }
     } catch {
-      // Service folder doesn't exist
-      errors.push(
-        `Service folder not found: specification/${orgName}. The orgName in the lease path must match an existing service folder in specification/.`,
-      );
+      // Service folder doesn't exist - treat as new service/RP being registered, skip spec folder validation
     }
 
     // Then check if resource-manager/<rpNamespace>/ exists (skip if new RP or service doesn't exist)
