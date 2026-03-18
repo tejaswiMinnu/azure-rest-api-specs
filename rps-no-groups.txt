@@ -1,1 +1,1 @@
-wack, Microsoft.Wack
+zombie, Microsoft.Zombie
