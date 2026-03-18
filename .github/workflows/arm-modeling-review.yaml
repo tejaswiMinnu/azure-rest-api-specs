@@ -22,18 +22,25 @@ jobs:
   arm-modeling-review:
     name: ARM Modeling Review
     runs-on: ubuntu-slim
+<<<<<<< HEAD
     # TODO: Set to true to enable new RP detection
     if: true
 
+=======
+>>>>>>> 56ee2e715f95aaa3811ac413b391bc8f1d4cec5b
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+<<<<<<< HEAD
           fetch-depth: 0 # Fetch all history for merge-base calculation and diffing
           sparse-checkout: |
             .github
             specification
             eng
+=======
+          fetch-depth: 2
+>>>>>>> 56ee2e715f95aaa3811ac413b391bc8f1d4cec5b
 
       - name: Install dependencies for github-script actions
         uses: ./.github/actions/install-deps-github-script
@@ -44,9 +51,14 @@ jobs:
         with:
           script: |
             const { default: armModelingReview } =
+<<<<<<< HEAD
               await import('${{ github.workspace }}/.github/workflows/src/arm-lease-validation/detect-new-resource-provider.js');
             const result = await armModelingReview({ context, core });
             return result;
+=======
+              await import('${{ github.workspace }}/.github/workflows/src/arm-modeling-review/arm-modeling-review.js');
+            return await armModelingReview({ context, core });
+>>>>>>> 56ee2e715f95aaa3811ac413b391bc8f1d4cec5b
 
       - name: Upload artifact for ARMModelingReviewRequired label
         if: always() && steps.detect.outputs.result && fromJson(steps.detect.outputs.result).labelActions['ARMModelingReviewRequired'] != 'none'

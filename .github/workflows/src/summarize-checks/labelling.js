@@ -654,7 +654,12 @@ function processARMReviewWorkflowLabels(
   // Block if ARMModelingReviewRequired is present (new RP namespace or new resource type detected)
   const armModelingReviewLabel = new Label("ARMModelingReviewRequired", labelContext.present);
   // Block if the label is already present or if it's being added by another check (e.g. detect-new-resource-provider)
+<<<<<<< HEAD
   const blockedOnArmModeling = armModelingReviewLabel.present || labelContext.toAdd.has("ARMModelingReviewRequired");
+=======
+  const blockedOnArmModeling =
+    armModelingReviewLabel.present || labelContext.toAdd.has("ARMModelingReviewRequired");
+>>>>>>> 56ee2e715f95aaa3811ac413b391bc8f1d4cec5b
 
   const blocked = blockedOnRpaas || blockedOnVersioningPolicy || blockedOnArmModeling;
 
@@ -893,12 +898,16 @@ const rulesPri0NotReadyForArmReview = [
   },
   {
     precedence: 0,
-    allPrerequisiteLabels: ["NotReadyForARMReview", "ARMModelingReviewRequired"],
+    anyPrerequisiteLabels: ["ARMModelingReviewRequired"],
     anyRequiredLabels: [],
     troubleshootingGuide: wrapInArmReviewMessage(
       "This PR has <code>ARMModelingReviewRequired</code> label. " +
         "This means it is introducing a new Resource Provider namespace or a new resource type. " +
+<<<<<<< HEAD
         "New RPs and new resource types require a discussion with the ARM Modelling Review team before merging.<br/>" +
+=======
+        "New RPs and new resource types require a discussion with the ARM Modeling Review team before merging.<br/>" +
+>>>>>>> 56ee2e715f95aaa3811ac413b391bc8f1d4cec5b
         "Please schedule a meeting at " +
         `${href("ARM API Modeling Office Hours", "https://outlook.office365.com/book/ARMOfficeHours1@microsoft.onmicrosoft.com/?ismsaljsauthenabled=true")}.`,
     ),
