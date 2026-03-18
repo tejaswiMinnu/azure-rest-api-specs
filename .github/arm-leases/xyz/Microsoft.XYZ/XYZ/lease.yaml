@@ -1,0 +1,5 @@
+lease:
+  resource-provider: Microsoft.XYZ
+  startdate: "2026-03-18"
+  duration: P180D
+  reviewer: "@tejaswiMinnu"
