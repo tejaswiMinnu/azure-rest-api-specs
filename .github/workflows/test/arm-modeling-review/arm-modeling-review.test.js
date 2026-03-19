@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMockCore } from "../mocks.js";
+import { createMockCore, createMockContext } from "../mocks.js";
 
 /** @type {import("vitest").MockedFunction<import("simple-git").SimpleGit["raw"]>} */
 const mockRaw = vi.hoisted(() => vi.fn().mockResolvedValue(""));
@@ -272,5 +272,85 @@ describe("armModelingReview", () => {
     expect(result.status).toBe("no-new-rp");
     expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
+  });
+
+  // ── Manual ARMModelingSignedOff label bypass ─────────────────────────
+
+  it("returns manually-signed-off and skips lease check when ARMModelingSignedOff label is present", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+
+    const context = createMockContext();
+    context.payload.pull_request = {
+      number: 1,
+      labels: [{ name: "ARMModelingSignedOff" }],
+    };
+
+    const result = await armModelingReview({ context, core });
+
+    expect(result.status).toBe("manually-signed-off");
+    expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
+    expect(result.labelActions.ARMModelingSignedOff).toBe("none");
+    expect(result.labelActions.ARMModelingAutoSignedOff).toBe("none");
+    expect(core.setFailed).not.toHaveBeenCalled();
+    expect(checkLease).not.toHaveBeenCalled();
+  });
+
+  it("does not bypass lease check when ARMModelingSignedOff label is absent", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+
+    const context = createMockContext();
+    context.payload.pull_request = { number: 1, labels: [] };
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    const result = await armModelingReview({ context, core });
+
+    expect(result.status).toBe("new-rp-invalid-lease");
+    expect(result.labelActions.ARMModelingReviewRequired).toBe("add");
+    expect(core.setFailed).toHaveBeenCalledTimes(1);
+    expect(checkLease).toHaveBeenCalled();
+  });
+
+  it("returns manually-signed-off even when no lease exists, if ARMModelingSignedOff label is present", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+
+    const context = createMockContext();
+    context.payload.pull_request = {
+      number: 1,
+      labels: [{ name: "ARMModelingSignedOff" }, { name: "SomeOtherLabel" }],
+    };
+
+    // Even though no changed files are returned, the label bypass should fire first
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/newrp/resource-manager/Microsoft.NewRP/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    const result = await armModelingReview({ context, core });
+
+    expect(result.status).toBe("manually-signed-off");
+    expect(core.setFailed).not.toHaveBeenCalled();
+    expect(checkLease).not.toHaveBeenCalled();
+  });
+
+  it("proceeds with normal lease check when context or pull_request payload is missing", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    // No context passed — should fall through to normal flow
+    const result = await armModelingReview({ core });
+
+    expect(result.status).toBe("new-rp-invalid-lease");
+    expect(core.setFailed).toHaveBeenCalledTimes(1);
   });
 });
