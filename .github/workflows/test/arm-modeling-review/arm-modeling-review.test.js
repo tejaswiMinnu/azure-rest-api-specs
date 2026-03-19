@@ -153,7 +153,7 @@ describe("armModelingReview", () => {
     const result = await armModelingReview({ core });
 
     expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
-    expect(result.labelActions.ARMModelingSignedOff).toBe("none");
+    expect(result.labelActions.ARMModelingSignedOff).toBe("remove");
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
   });
 
@@ -173,7 +173,13 @@ describe("armModelingReview", () => {
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
   });
 
-  it("returns Remove for ARMModelingReviewRequired when new RP has valid lease", async () => {
+  it("removes ARMModelingSignedOff and adds ARMModelingAutoSignedOff when new RP has valid lease", async () => {
+    // Key scenario: user added ARMModelingSignedOff as a re-check trigger after merging the
+    // lease file to main. Workflow re-runs, finds the lease, and should:
+    //   - pass (no setFailed)
+    //   - remove ARMModelingSignedOff (the trigger label)
+    //   - add ARMModelingAutoSignedOff (valid lease confirmed)
+    //   - remove ARMModelingReviewRequired
     process.env.GITHUB_WORKSPACE = "/fake/repo";
 
     vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
@@ -184,9 +190,11 @@ describe("armModelingReview", () => {
 
     const result = await armModelingReview({ core });
 
+    expect(result.status).toBe("new-rp-all-leases-valid");
     expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
-    expect(result.labelActions.ARMModelingSignedOff).toBe("none");
+    expect(result.labelActions.ARMModelingSignedOff).toBe("remove");
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("add");
+    expect(core.setFailed).not.toHaveBeenCalled();
   });
 
   // ── New resource type detection (no new RP) ──────────────────────────
@@ -271,81 +279,7 @@ describe("armModelingReview", () => {
 
     expect(result.status).toBe("no-new-rp");
     expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
+    expect(result.labelActions.ARMModelingSignedOff).toBe("remove");
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
-  });
-
-  // ── Manual sign-off via ARMModelingSignedOff label event ──────────────────────────
-
-  it("accepts manual sign-off and returns manually-signed-off when labeled event with ARMModelingSignedOff", async () => {
-    process.env.GITHUB_WORKSPACE = "/fake/repo";
-
-    const context =
-      /** @type {import('@actions/github-script').AsyncFunctionArguments['context']} */ (
-        /** @type {unknown} */ ({
-          payload: {
-            action: "labeled",
-            label: { name: "ARMModelingSignedOff" },
-          },
-        })
-      );
-
-    const result = await armModelingReview({ context, core });
-
-    expect(result.status).toBe("manually-signed-off");
-    expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
-    expect(result.labelActions.ARMModelingSignedOff).toBe("none");
-    expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
-    expect(core.setFailed).not.toHaveBeenCalled();
-    expect(core.info).toHaveBeenCalledWith(expect.stringContaining("manually added by a reviewer"));
-  });
-
-  it("does not skip lease check for other labeled events", async () => {
-    process.env.GITHUB_WORKSPACE = "/fake/repo";
-    const rmFile = "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json";
-
-    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([rmFile]);
-    vi.mocked(mockRaw).mockResolvedValue("");
-    vi.mocked(checkLease).mockResolvedValue(false);
-
-    const context =
-      /** @type {import('@actions/github-script').AsyncFunctionArguments['context']} */ (
-        /** @type {unknown} */ ({
-          payload: {
-            action: "labeled",
-            label: { name: "SomeOtherLabel" },
-          },
-        })
-      );
-
-    const result = await armModelingReview({ context, core });
-
-    // Should still run the lease check for other label events
-    expect(result.status).toBe("new-rp-invalid-lease");
-    expect(core.setFailed).toHaveBeenCalled();
-  });
-
-  it("runs lease check for unlabeled event with ARMModelingSignedOff", async () => {
-    process.env.GITHUB_WORKSPACE = "/fake/repo";
-    const rmFile = "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json";
-
-    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([rmFile]);
-    vi.mocked(mockRaw).mockResolvedValue("");
-    vi.mocked(checkLease).mockResolvedValue(false);
-
-    const context =
-      /** @type {import('@actions/github-script').AsyncFunctionArguments['context']} */ (
-        /** @type {unknown} */ ({
-          payload: {
-            action: "unlabeled",
-            label: { name: "ARMModelingSignedOff" },
-          },
-        })
-      );
-
-    const result = await armModelingReview({ context, core });
-
-    // When label is removed, still run lease check
-    expect(result.status).toBe("new-rp-invalid-lease");
-    expect(core.setFailed).toHaveBeenCalled();
   });
 });
