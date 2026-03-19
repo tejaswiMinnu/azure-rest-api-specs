@@ -123,10 +123,35 @@ function extractResourceProviders(files) {
  * Main detection logic for GitHub script action.
  *
  * @param {Object} params - Parameters from github-script
+ * @param {import('@actions/github-script').AsyncFunctionArguments['context']} [params.context]
  * @param {import('@actions/github-script').AsyncFunctionArguments['core']} params.core
  * @returns {Promise<{ status: string, labelActions: ManagedLabelActions }>}
  */
-export default async function armModelingReview({ core }) {
+export default async function armModelingReview({ context, core }) {
+  // If the PR already has the ARMModelingSignedOff label (manually added by a reviewer),
+  // skip the automated lease check and treat the PR as signed off.
+  const payload = /** @type {import("@octokit/webhooks-types").PullRequestEvent | undefined} */ (
+    context?.payload
+  );
+  const prLabels = payload?.pull_request?.labels ?? [];
+  const isManuallySignedOff = prLabels.some(
+    (label) => label.name === ArmLeaseValidationLabel.ArmModelingSignedOff,
+  );
+
+  if (isManuallySignedOff) {
+    core.info(
+      `PR has "${ArmLeaseValidationLabel.ArmModelingSignedOff}" label — skipping automated ARM modeling review.`,
+    );
+    return {
+      status: "manually-signed-off",
+      labelActions: {
+        [ArmLeaseValidationLabel.ArmModelingReviewRequired]: LabelAction.Remove,
+        [ArmLeaseValidationLabel.ArmModelingSignedOff]: LabelAction.None,
+        [ArmLeaseValidationLabel.ArmModelingAutoSignedOff]: LabelAction.None,
+      },
+    };
+  }
+
   const options = {
     cwd: process.env.GITHUB_WORKSPACE,
     paths: ["specification"],
