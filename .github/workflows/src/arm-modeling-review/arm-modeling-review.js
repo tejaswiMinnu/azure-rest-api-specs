@@ -78,7 +78,8 @@ function getLabelActions(outcome) {
   if (outcome === "auto-signed-off") {
     return {
       [ArmLeaseValidationLabel.ArmModelingReviewRequired]: LabelAction.Remove,
-      [ArmLeaseValidationLabel.ArmModelingSignedOff]: LabelAction.Remove,
+      // Do not remove a manually-added ARMModelingSignedOff label when auto sign-off applies.
+      [ArmLeaseValidationLabel.ArmModelingSignedOff]: LabelAction.None,
       [ArmLeaseValidationLabel.ArmModelingAutoSignedOff]: LabelAction.Add,
     };
   }
@@ -86,7 +87,8 @@ function getLabelActions(outcome) {
   // outcome === "none"
   return {
     [ArmLeaseValidationLabel.ArmModelingReviewRequired]: LabelAction.Remove,
-    [ArmLeaseValidationLabel.ArmModelingSignedOff]: LabelAction.Remove,
+    // Do not remove a manually-added ARMModelingSignedOff label when no new RPs/RTs are detected.
+    [ArmLeaseValidationLabel.ArmModelingSignedOff]: LabelAction.None,
     [ArmLeaseValidationLabel.ArmModelingAutoSignedOff]: LabelAction.Remove,
   };
 }
@@ -123,10 +125,32 @@ function extractResourceProviders(files) {
  * Main detection logic for GitHub script action.
  *
  * @param {Object} params - Parameters from github-script
+ * @param {import('@actions/github-script').AsyncFunctionArguments['context']} [params.context]
  * @param {import('@actions/github-script').AsyncFunctionArguments['core']} params.core
  * @returns {Promise<{ status: string, labelActions: ManagedLabelActions }>}
  */
-export default async function armModelingReview({ core }) {
+export default async function armModelingReview({ context, core }) {
+  // When a reviewer manually adds ARMModelingSignedOff, accept it as a sign-off.
+  // This allows PMs/reviewers to unblock a PR that has been reviewed and approved even
+  // before a lease file has been committed to the repository.
+  const payload = /** @type {{ action?: string, label?: { name?: string } }} */ (
+    context?.payload ?? {}
+  );
+  if (
+    payload.action === "labeled" &&
+    payload.label?.name === ArmLeaseValidationLabel.ArmModelingSignedOff
+  ) {
+    core.info("ARMModelingSignedOff label was manually added by a reviewer — accepting sign-off.");
+    return {
+      status: "manually-signed-off",
+      labelActions: {
+        [ArmLeaseValidationLabel.ArmModelingReviewRequired]: LabelAction.Remove,
+        [ArmLeaseValidationLabel.ArmModelingSignedOff]: LabelAction.None,
+        [ArmLeaseValidationLabel.ArmModelingAutoSignedOff]: LabelAction.Remove,
+      },
+    };
+  }
+
   const options = {
     cwd: process.env.GITHUB_WORKSPACE,
     paths: ["specification"],
