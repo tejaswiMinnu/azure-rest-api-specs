@@ -2,6 +2,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { readFile } from "fs/promises";
 import yaml from "js-yaml";
 import { resolve } from "path";
+import { simpleGit } from "simple-git";
 import * as z from "zod";
 import { getRootFolder } from "../../../shared/src/simple-git.js";
 
@@ -30,7 +31,28 @@ const leaseSchema = z.object({
 });
 
 /**
- * Build the lease path based on service information.
+ * Build the relative lease path based on service information.
+ *
+ * Lease files are stored at:
+ * - Without service name: `.github/arm-leases/<orgName>/<rpNamespace>/lease.yaml`
+ * - With service name:    `.github/arm-leases/<orgName>/<rpNamespace>/<serviceName>/lease.yaml`
+ *
+ * @param {string} orgName - Organization name (e.g., "compute")
+ * @param {string} rpNamespace - Resource provider namespace (e.g., "Microsoft.Compute")
+ * @param {string} serviceName - Optional service name for RPs with sub-groupings (e.g., "ComputeRP")
+ * @returns {string} Relative path to lease.yaml file (e.g., ".github/arm-leases/compute/Microsoft.Compute/lease.yaml")
+ */
+function buildLeaseRelativePath(orgName, rpNamespace, serviceName = "") {
+  const parts = [".github", "arm-leases", orgName, rpNamespace];
+  if (serviceName) {
+    parts.push(serviceName);
+  }
+  parts.push("lease.yaml");
+  return parts.join("/");
+}
+
+/**
+ * Build the full lease path based on service information.
  *
  * Lease files are stored at:
  * - Without service name: `.github/arm-leases/<orgName>/<rpNamespace>/lease.yaml`
@@ -43,12 +65,7 @@ const leaseSchema = z.object({
  * @returns {string} Full path to lease.yaml file
  */
 function buildLeasePath(repoRoot, orgName, rpNamespace, serviceName = "") {
-  const leasePathParts = [repoRoot, ".github", "arm-leases", orgName, rpNamespace];
-  if (serviceName) {
-    leasePathParts.push(serviceName);
-  }
-  leasePathParts.push("lease.yaml");
-  return resolve(...leasePathParts);
+  return resolve(repoRoot, buildLeaseRelativePath(orgName, rpNamespace, serviceName));
 }
 
 /**
@@ -90,7 +107,11 @@ export function parseLease(content) {
 /**
  * Check if ARM lease exists and is valid.
  *
- * Looks for a lease file at the appropriate path (see buildLeasePath for path structure).
+ * First checks the workspace (checkout). If the file is not found in the workspace —
+ * which can happen when the PR merge ref is stale relative to the base branch — falls back
+ * to reading the file from HEAD^ (the base branch parent of the merge commit) via git show.
+ * This is the same pattern used by trivial-changes-check.js and arm-incremental-typespec.js
+ * and requires no extra git fetch or GitHub API calls.
  *
  * @param {string} orgName - Organization name (e.g., "compute")
  * @param {string} rpNamespace - Resource provider namespace (e.g., "Microsoft.Compute")
@@ -100,12 +121,21 @@ export function parseLease(content) {
 export async function checkLease(orgName, rpNamespace, serviceName = "") {
   const repoRoot = await getRootFolder(process.cwd());
   const leasePath = buildLeasePath(repoRoot, orgName, rpNamespace, serviceName);
+  const relLeasePath = buildLeaseRelativePath(orgName, rpNamespace, serviceName);
 
   let content;
   try {
     content = await readFile(leasePath, "utf-8");
   } catch {
-    return false;
+    // File not found in workspace — fall back to reading from HEAD^ via git show.
+    // HEAD^ is the base branch parent of the merge commit, consistent with how
+    // trivial-changes-check.js and arm-incremental-typespec.js read base-branch files.
+    try {
+      const git = simpleGit(repoRoot);
+      content = await git.show([`HEAD^:${relLeasePath}`]);
+    } catch {
+      return false;
+    }
   }
 
   return parseLease(content).valid;
