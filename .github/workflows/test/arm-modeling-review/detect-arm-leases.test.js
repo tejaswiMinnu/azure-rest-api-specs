@@ -15,6 +15,13 @@ vi.mock("../../../shared/src/simple-git.js", () => ({
   getRootFolder: mockGetRootFolder,
 }));
 
+/** @type {{ show: import("vitest").MockedFunction<() => Promise<string>> }} */
+const mockGitInstance = vi.hoisted(() => ({ show: vi.fn() }));
+
+vi.mock("simple-git", () => ({
+  simpleGit: vi.fn(() => mockGitInstance),
+}));
+
 import { checkLease, parseLease } from "../../src/arm-modeling-review/detect-arm-leases.js";
 
 // Use a fixed date for deterministic tests (avoids flakiness around midnight)
@@ -121,7 +128,7 @@ describe("detect-arm-leases", () => {
 
   describe("checkLease", () => {
     it("returns false when lease file does not exist", async () => {
-      mockReadFile.mockRejectedValue(new Error("ENOENT"));
+      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
 
       const result = await checkLease("testservice", "Microsoft.Test");
       expect(result).toBe(false);
@@ -156,9 +163,85 @@ describe("detect-arm-leases", () => {
     });
 
     it("returns false for missing namespace", async () => {
-      mockReadFile.mockRejectedValue(new Error("ENOENT"));
+      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
 
       expect(await checkLease("storage", "Microsoft.Storage")).toBe(false);
+    });
+
+    it("falls back to git show from base ref when file not in workspace", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+      mockGitInstance.show.mockResolvedValue(leaseYaml(daysAgo(30), "P90D"));
+
+      const originalBaseRef = process.env.GITHUB_BASE_REF;
+      process.env.GITHUB_BASE_REF = "main";
+      try {
+        const result = await checkLease("xyz", "Microsoft.XYZ", "XYZ");
+        expect(result).toBe(true);
+        expect(mockGitInstance.show).toHaveBeenCalledWith([
+          "origin/main:.github/arm-leases/xyz/Microsoft.XYZ/XYZ/lease.yaml",
+        ]);
+      } finally {
+        if (originalBaseRef === undefined) {
+          delete process.env.GITHUB_BASE_REF;
+        } else {
+          process.env.GITHUB_BASE_REF = originalBaseRef;
+        }
+      }
+    });
+
+    it("falls back to git show without serviceName when file not in workspace", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+      mockGitInstance.show.mockResolvedValue(leaseYaml(daysAgo(30), "P90D"));
+
+      const originalBaseRef = process.env.GITHUB_BASE_REF;
+      process.env.GITHUB_BASE_REF = "main";
+      try {
+        const result = await checkLease("xyz", "Microsoft.XYZ");
+        expect(result).toBe(true);
+        expect(mockGitInstance.show).toHaveBeenCalledWith([
+          "origin/main:.github/arm-leases/xyz/Microsoft.XYZ/lease.yaml",
+        ]);
+      } finally {
+        if (originalBaseRef === undefined) {
+          delete process.env.GITHUB_BASE_REF;
+        } else {
+          process.env.GITHUB_BASE_REF = originalBaseRef;
+        }
+      }
+    });
+
+    it("returns false when git show also fails and GITHUB_BASE_REF is set", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+      mockGitInstance.show.mockRejectedValue(new Error("not found in git"));
+
+      const originalBaseRef = process.env.GITHUB_BASE_REF;
+      process.env.GITHUB_BASE_REF = "main";
+      try {
+        const result = await checkLease("xyz", "Microsoft.XYZ");
+        expect(result).toBe(false);
+      } finally {
+        if (originalBaseRef === undefined) {
+          delete process.env.GITHUB_BASE_REF;
+        } else {
+          process.env.GITHUB_BASE_REF = originalBaseRef;
+        }
+      }
+    });
+
+    it("returns false without git fallback when GITHUB_BASE_REF is not set", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+
+      const originalBaseRef = process.env.GITHUB_BASE_REF;
+      delete process.env.GITHUB_BASE_REF;
+      try {
+        const result = await checkLease("xyz", "Microsoft.XYZ");
+        expect(result).toBe(false);
+        expect(mockGitInstance.show).not.toHaveBeenCalled();
+      } finally {
+        if (originalBaseRef !== undefined) {
+          process.env.GITHUB_BASE_REF = originalBaseRef;
+        }
+      }
     });
   });
 });

@@ -12,6 +12,9 @@ on:
       - reopened
       # re-run if base branch is changed, since previous merge commit may generate incorrect diff
       - edited
+      # re-run when ARMModelingSignedOff is manually added or removed by a reviewer
+      - labeled
+      - unlabeled
     paths:
       - "specification/**/resource-manager/**"
 
@@ -21,12 +24,23 @@ permissions:
 jobs:
   arm-modeling-review:
     name: ARM Modeling Review
+    # For code-change events (opened/synchronize/reopened/edited), always run.
+    # For label events, only run when ARMModelingSignedOff is the label being added or removed,
+    # since that label represents a manual reviewer sign-off that affects this workflow's output.
+    if: |
+      (github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+      github.event.label.name == 'ARMModelingSignedOff'
     runs-on: ubuntu-slim
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 2
+
+      - name: Fetch base branch for lease validation
+        # Ensures lease files added to the base branch are accessible even when
+        # the PR merge ref is stale or the checkout uses the PR head (e.g. labeled events)
+        run: git fetch origin "${{ github.base_ref }}" --depth=1
 
       - name: Install dependencies for github-script actions
         uses: ./.github/actions/install-deps-github-script
