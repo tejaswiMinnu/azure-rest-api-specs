@@ -285,7 +285,7 @@ describe("armModelingReview", () => {
     const github = createMockGithub();
     const context = createMockContext();
     context.payload.pull_request = { number: 42 };
-    context.repo = { owner: "org", repo: "repo" };
+    context.payload.repository = { owner: { login: "owner" }, name: "repo" };
 
     vi.mocked(github.rest.issues.listLabelsOnIssue).mockResolvedValue({
       data: [{ name: "ARMModelingSignedOff" }],
@@ -313,7 +313,7 @@ describe("armModelingReview", () => {
     const github = createMockGithub();
     const context = createMockContext();
     context.payload.pull_request = { number: 42 };
-    context.repo = { owner: "org", repo: "repo" };
+    context.payload.repository = { owner: { login: "owner" }, name: "repo" };
 
     vi.mocked(github.rest.issues.listLabelsOnIssue).mockResolvedValue({
       data: [{ name: "ARMModelingSignedOff" }],
@@ -342,7 +342,7 @@ describe("armModelingReview", () => {
     const github = createMockGithub();
     const context = createMockContext();
     context.payload.pull_request = { number: 42 };
-    context.repo = { owner: "org", repo: "repo" };
+    context.payload.repository = { owner: { login: "owner" }, name: "repo" };
 
     vi.mocked(github.rest.issues.listLabelsOnIssue).mockResolvedValue({ data: [] });
 
@@ -375,30 +375,6 @@ describe("armModelingReview", () => {
     expect(core.setFailed).toHaveBeenCalledTimes(1);
   });
 
-  it("warns and continues when GitHub API call fails", async () => {
-    process.env.GITHUB_WORKSPACE = "/fake/repo";
-
-    const github = createMockGithub();
-    const context = createMockContext();
-    context.payload.pull_request = { number: 42 };
-    context.repo = { owner: "org", repo: "repo" };
-
-    vi.mocked(github.rest.issues.listLabelsOnIssue).mockRejectedValue(new Error("API error"));
-
-    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
-      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
-    ]);
-    vi.mocked(mockRaw).mockResolvedValue("");
-    vi.mocked(checkLease).mockResolvedValue(false);
-
-    const result = await armModelingReview({ github, context, core });
-
-    // Should warn but continue with normal (non-manually-signed-off) behavior
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("API error"));
-    expect(result.status).toBe("new-rp-invalid-lease");
-    expect(core.setFailed).toHaveBeenCalledTimes(1);
-  });
-
   it("suppresses setFailed for new resource types when ARMModelingSignedOff label is present", async () => {
     process.env.GITHUB_WORKSPACE = "/fake/repo";
     const rmFile =
@@ -407,7 +383,7 @@ describe("armModelingReview", () => {
     const github = createMockGithub();
     const context = createMockContext();
     context.payload.pull_request = { number: 42 };
-    context.repo = { owner: "org", repo: "repo" };
+    context.payload.repository = { owner: { login: "owner" }, name: "repo" };
 
     vi.mocked(github.rest.issues.listLabelsOnIssue).mockResolvedValue({
       data: [{ name: "ARMModelingSignedOff" }],

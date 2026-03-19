@@ -1,5 +1,6 @@
 import { simpleGit } from "simple-git";
 import { getChangedFiles, resourceManager, swagger } from "../../../shared/src/changed-files.js";
+import { PER_PAGE_MAX } from "../../../shared/src/github.js";
 import { CoreLogger } from "../core-logger.js";
 import { LabelAction } from "../label.js";
 import { ArmLeaseValidationLabel } from "./arm-lease-validation-labels.js";
@@ -130,38 +131,31 @@ function extractResourceProviders(files) {
  */
 export default async function armModelingReview({ github, context, core }) {
   // Determine whether the PR currently carries the ARMModelingSignedOff label.
-  // We use the GitHub API instead of the event payload because:
-  //  - On manual reruns, the event payload reflects the original trigger event and may
-  //    not include labels that were added afterwards.
-  //  - On `labeled` events the payload IS current, but using the API is consistent.
+  // We use the GitHub API to get the current labels, since the event payload may be stale
+  // (e.g. on manual reruns triggered before the label was added).
   let isManuallySignedOff = false;
 
-  const issueNumber = context?.payload?.pull_request?.number;
-  const repoOwner = context?.repo?.owner;
-  const repositoryName = context?.repo?.repo;
+  const payload = /** @type {import("@octokit/webhooks-types").PullRequestEvent | undefined} */ (
+    context?.payload
+  );
+  const owner = payload?.repository?.owner?.login;
+  const repo = payload?.repository?.name;
+  const issue_number = payload?.pull_request?.number;
 
-  if (github && issueNumber && repoOwner && repositoryName) {
-    try {
-      const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
-        owner: repoOwner,
-        repo: repositoryName,
-        issue_number: issueNumber,
-      });
-      isManuallySignedOff = currentLabels.some(
-        (label) => label.name === ArmLeaseValidationLabel.ArmModelingSignedOff,
-      );
-    } catch (e) {
-      core.warning(
-        `Could not fetch current PR labels from GitHub API: ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
+  if (github && owner && repo && issue_number) {
+    const labels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+      owner: owner,
+      repo: repo,
+      issue_number: issue_number,
+      per_page: PER_PAGE_MAX,
+    });
+    const labelNames = labels.map((label) => label.name);
+    isManuallySignedOff = labelNames.includes(ArmLeaseValidationLabel.ArmModelingSignedOff);
   }
 
   if (isManuallySignedOff) {
     core.info(
-      `PR has "${ArmLeaseValidationLabel.ArmModelingSignedOff}" label — ` +
-        "re-checking leases with the latest arm-leases files. " +
-        "core.setFailed() will not be called regardless of outcome; labels will be updated.",
+      `PR has "${ArmLeaseValidationLabel.ArmModelingSignedOff}" label — re-checking leases with the latest arm-leases files.`,
     );
   }
 
