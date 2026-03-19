@@ -107,11 +107,11 @@ export function parseLease(content) {
 /**
  * Check if ARM lease exists and is valid.
  *
- * Looks for a lease file at the appropriate path (see buildLeasePath for path structure).
- * Falls back to reading from the base branch ref (origin/<GITHUB_BASE_REF>) if the file is
- * not found in the workspace. This handles the case where a labeled/unlabeled event causes
- * the workflow to check out the PR head instead of the merge commit, so lease files added
- * to the base branch (but not the PR branch) are still accessible.
+ * First checks the workspace (checkout). If the file is not found in the workspace —
+ * which can happen when the PR merge ref is stale relative to the base branch — falls back
+ * to reading the file from HEAD^ (the base branch parent of the merge commit) via git show.
+ * This is the same pattern used by trivial-changes-check.js and arm-incremental-typespec.js
+ * and requires no extra git fetch or GitHub API calls.
  *
  * @param {string} orgName - Organization name (e.g., "compute")
  * @param {string} rpNamespace - Resource provider namespace (e.g., "Microsoft.Compute")
@@ -121,22 +121,18 @@ export function parseLease(content) {
 export async function checkLease(orgName, rpNamespace, serviceName = "") {
   const repoRoot = await getRootFolder(process.cwd());
   const leasePath = buildLeasePath(repoRoot, orgName, rpNamespace, serviceName);
+  const relLeasePath = buildLeaseRelativePath(orgName, rpNamespace, serviceName);
 
   let content;
   try {
     content = await readFile(leasePath, "utf-8");
   } catch {
-    // File not found in workspace — fall back to reading from the fetched base branch ref.
-    // This handles labeled/unlabeled events where the checkout may be the PR head rather
-    // than the merge commit, so lease files on the base branch aren't in the workspace.
-    const baseRef = process.env.GITHUB_BASE_REF;
-    if (!baseRef) {
-      return false;
-    }
-    const relLeasePath = buildLeaseRelativePath(orgName, rpNamespace, serviceName);
+    // File not found in workspace — fall back to reading from HEAD^ via git show.
+    // HEAD^ is the base branch parent of the merge commit, consistent with how
+    // trivial-changes-check.js and arm-incremental-typespec.js read base-branch files.
     try {
       const git = simpleGit(repoRoot);
-      content = await git.show([`origin/${baseRef}:${relLeasePath}`]);
+      content = await git.show([`HEAD^:${relLeasePath}`]);
     } catch {
       return false;
     }

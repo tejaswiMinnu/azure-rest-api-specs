@@ -128,7 +128,8 @@ describe("detect-arm-leases", () => {
 
   describe("checkLease", () => {
     it("returns false when lease file does not exist", async () => {
-      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+      mockReadFile.mockRejectedValue(Object.assign(new Error("File not found"), { code: "ENOENT" }));
+      mockGitInstance.show.mockRejectedValue(new Error("does not exist in HEAD^"));
 
       const result = await checkLease("testservice", "Microsoft.Test");
       expect(result).toBe(false);
@@ -162,86 +163,51 @@ describe("detect-arm-leases", () => {
       expect(await checkLease("compute", "Microsoft.Compute")).toBe(true);
     });
 
-    it("returns false for missing namespace", async () => {
-      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+    it("returns false for missing namespace when git show also fails", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error("File not found"), { code: "ENOENT" }));
+      mockGitInstance.show.mockRejectedValue(new Error("does not exist in HEAD^"));
 
       expect(await checkLease("storage", "Microsoft.Storage")).toBe(false);
     });
 
-    it("falls back to git show from base ref when file not in workspace", async () => {
-      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+    it("falls back to git show HEAD^ when file not in workspace (with serviceName)", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error("File not found"), { code: "ENOENT" }));
       mockGitInstance.show.mockResolvedValue(leaseYaml(daysAgo(30), "P90D"));
 
-      const originalBaseRef = process.env.GITHUB_BASE_REF;
-      process.env.GITHUB_BASE_REF = "main";
-      try {
-        const result = await checkLease("xyz", "Microsoft.XYZ", "XYZ");
-        expect(result).toBe(true);
-        expect(mockGitInstance.show).toHaveBeenCalledWith([
-          "origin/main:.github/arm-leases/xyz/Microsoft.XYZ/XYZ/lease.yaml",
-        ]);
-      } finally {
-        if (originalBaseRef === undefined) {
-          delete process.env.GITHUB_BASE_REF;
-        } else {
-          process.env.GITHUB_BASE_REF = originalBaseRef;
-        }
-      }
+      const result = await checkLease("xyz", "Microsoft.XYZ", "XYZ");
+
+      expect(result).toBe(true);
+      expect(mockGitInstance.show).toHaveBeenCalledWith([
+        "HEAD^:.github/arm-leases/xyz/Microsoft.XYZ/XYZ/lease.yaml",
+      ]);
     });
 
-    it("falls back to git show without serviceName when file not in workspace", async () => {
-      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+    it("falls back to git show HEAD^ when file not in workspace (without serviceName)", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error("File not found"), { code: "ENOENT" }));
       mockGitInstance.show.mockResolvedValue(leaseYaml(daysAgo(30), "P90D"));
 
-      const originalBaseRef = process.env.GITHUB_BASE_REF;
-      process.env.GITHUB_BASE_REF = "main";
-      try {
-        const result = await checkLease("xyz", "Microsoft.XYZ");
-        expect(result).toBe(true);
-        expect(mockGitInstance.show).toHaveBeenCalledWith([
-          "origin/main:.github/arm-leases/xyz/Microsoft.XYZ/lease.yaml",
-        ]);
-      } finally {
-        if (originalBaseRef === undefined) {
-          delete process.env.GITHUB_BASE_REF;
-        } else {
-          process.env.GITHUB_BASE_REF = originalBaseRef;
-        }
-      }
+      const result = await checkLease("xyz", "Microsoft.XYZ");
+
+      expect(result).toBe(true);
+      expect(mockGitInstance.show).toHaveBeenCalledWith([
+        "HEAD^:.github/arm-leases/xyz/Microsoft.XYZ/lease.yaml",
+      ]);
     });
 
-    it("returns false when git show also fails and GITHUB_BASE_REF is set", async () => {
-      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
-      mockGitInstance.show.mockRejectedValue(new Error("not found in git"));
+    it("returns false when git show HEAD^ fails", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error("File not found"), { code: "ENOENT" }));
+      mockGitInstance.show.mockRejectedValue(new Error("path 'xyz' does not exist in HEAD^"));
 
-      const originalBaseRef = process.env.GITHUB_BASE_REF;
-      process.env.GITHUB_BASE_REF = "main";
-      try {
-        const result = await checkLease("xyz", "Microsoft.XYZ");
-        expect(result).toBe(false);
-      } finally {
-        if (originalBaseRef === undefined) {
-          delete process.env.GITHUB_BASE_REF;
-        } else {
-          process.env.GITHUB_BASE_REF = originalBaseRef;
-        }
-      }
+      const result = await checkLease("xyz", "Microsoft.XYZ");
+      expect(result).toBe(false);
     });
 
-    it("returns false without git fallback when GITHUB_BASE_REF is not set", async () => {
-      mockReadFile.mockRejectedValue(Object.assign(new Error('File not found'), { code: 'ENOENT' }));
+    it("returns false when git show returns invalid lease content", async () => {
+      mockReadFile.mockRejectedValue(Object.assign(new Error("File not found"), { code: "ENOENT" }));
+      mockGitInstance.show.mockResolvedValue("invalid: yaml: content");
 
-      const originalBaseRef = process.env.GITHUB_BASE_REF;
-      delete process.env.GITHUB_BASE_REF;
-      try {
-        const result = await checkLease("xyz", "Microsoft.XYZ");
-        expect(result).toBe(false);
-        expect(mockGitInstance.show).not.toHaveBeenCalled();
-      } finally {
-        if (originalBaseRef !== undefined) {
-          process.env.GITHUB_BASE_REF = originalBaseRef;
-        }
-      }
+      const result = await checkLease("xyz", "Microsoft.XYZ");
+      expect(result).toBe(false);
     });
   });
 });
