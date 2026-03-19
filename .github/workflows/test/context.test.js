@@ -437,6 +437,50 @@ describe("extractInputs", () => {
     });
   });
 
+  it("workflow_run:completed:workflow_dispatch (finds associated PR via API)", async () => {
+    // When ARM Modeling Review is triggered via workflow_dispatch on a PR branch,
+    // the update-labels workflow sees workflow_run.event=workflow_dispatch.
+    // The PR number is looked up via the listPullRequestsAssociatedWithCommit API.
+    const context = {
+      eventName: "workflow_run",
+      payload: {
+        action: "completed",
+        workflow_run: {
+          event: "workflow_dispatch",
+          head_sha: "abc123",
+          id: 456,
+          head_repository: {
+            name: "TestRepoName",
+            owner: {
+              login: "TestRepoOwnerLogin",
+            },
+          },
+          repository: {
+            id: 1234,
+            name: "TestRepoName",
+            owner: {
+              login: "TestRepoOwnerLogin",
+            },
+          },
+          pull_requests: [],
+        },
+      },
+    };
+
+    const github = createMockGithub();
+    github.rest.repos.listPullRequestsAssociatedWithCommit.mockResolvedValue({
+      data: [{ base: { repo: { id: 1234 } }, number: 41 }],
+    });
+
+    await expect(extractInputs(github, context, createMockCore())).resolves.toEqual({
+      owner: "TestRepoOwnerLogin",
+      repo: "TestRepoName",
+      head_sha: "abc123",
+      issue_number: 41,
+      run_id: 456,
+    });
+  });
+
   it("workflow_run:completed:unsupported", async () => {
     const context = {
       eventName: "workflow_run",

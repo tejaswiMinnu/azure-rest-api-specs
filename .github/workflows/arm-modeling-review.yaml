@@ -1,6 +1,9 @@
 name: ARM Modeling Review
 
 on:
+  # Allow manual re-triggers when ARMModelingSignedOff is already on the PR
+  # but the workflow has not run since the lease was added to main.
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -27,7 +30,9 @@ jobs:
     # For code-change events (opened/synchronize/reopened/edited), always run.
     # For label events, only run when ARMModelingSignedOff is the label being added or removed,
     # since that label represents a manual reviewer sign-off that affects this workflow's output.
+    # For workflow_dispatch, always run (no label condition needed).
     if: |
+      github.event_name == 'workflow_dispatch' ||
       (github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
       github.event.label.name == 'ARMModelingSignedOff'
     runs-on: ubuntu-slim
@@ -36,6 +41,15 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 2
+
+      # For workflow_dispatch triggered on a PR branch, the checkout does not include the
+      # merge base (main), so lease files added to main are absent from disk.
+      # Overlay just the arm-leases directory from origin/main to make them available.
+      - name: Fetch lease files from base branch (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git fetch origin main --depth=1
+          git checkout origin/main -- .github/arm-leases/ 2>/dev/null || true
 
       - name: Install dependencies for github-script actions
         uses: ./.github/actions/install-deps-github-script

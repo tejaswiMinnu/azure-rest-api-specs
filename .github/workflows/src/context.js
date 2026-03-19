@@ -116,7 +116,9 @@ export async function extractInputs(github, context, core) {
 
     if (
       payload.workflow_run.event === "pull_request" ||
-      payload.workflow_run.event == "pull_request_target"
+      payload.workflow_run.event === "pull_request_target" ||
+      // workflow_dispatch is triggered on a specific branch; find the associated PR via API
+      payload.workflow_run.event === "workflow_dispatch"
     ) {
       head_sha = payload.workflow_run.head_sha;
 
