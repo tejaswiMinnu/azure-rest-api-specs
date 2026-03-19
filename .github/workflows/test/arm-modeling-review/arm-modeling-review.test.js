@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMockCore, createMockContext } from "../mocks.js";
+import { createMockCore, createMockContext, createMockGithub } from "../mocks.js";
 
 /** @type {import("vitest").MockedFunction<import("simple-git").SimpleGit["raw"]>} */
 const mockRaw = vi.hoisted(() => vi.fn().mockResolvedValue(""));
@@ -274,32 +274,50 @@ describe("armModelingReview", () => {
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
   });
 
-  // ── Manual ARMModelingSignedOff label bypass ─────────────────────────
+  // ── Manual ARMModelingSignedOff label re-check behavior ─────────────
+  // When ARMModelingSignedOff is present the lease check still runs (it is NOT
+  // skipped), but core.setFailed() is suppressed so the CI check stays green
+  // while labels are updated to reflect the actual lease state.
 
-  it("returns manually-signed-off and skips lease check when ARMModelingSignedOff label is present", async () => {
+  it("re-checks lease and returns auto-signed-off when ARMModelingSignedOff label is present and lease is valid", async () => {
     process.env.GITHUB_WORKSPACE = "/fake/repo";
 
+    const github = createMockGithub();
     const context = createMockContext();
-    context.payload.pull_request = {
-      number: 1,
-      labels: [{ name: "ARMModelingSignedOff" }],
-    };
+    context.payload.pull_request = { number: 42 };
+    context.repo = { owner: "org", repo: "repo" };
 
-    const result = await armModelingReview({ context, core });
+    vi.mocked(github.rest.issues.listLabelsOnIssue).mockResolvedValue({
+      data: [{ name: "ARMModelingSignedOff" }],
+    });
 
-    expect(result.status).toBe("manually-signed-off");
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(true);
+
+    const result = await armModelingReview({ github, context, core });
+
+    expect(result.status).toBe("new-rp-all-leases-valid");
+    expect(result.labelActions.ARMModelingAutoSignedOff).toBe("add");
     expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
-    expect(result.labelActions.ARMModelingSignedOff).toBe("none");
-    expect(result.labelActions.ARMModelingAutoSignedOff).toBe("none");
+    expect(result.labelActions.ARMModelingSignedOff).toBe("remove");
     expect(core.setFailed).not.toHaveBeenCalled();
-    expect(checkLease).not.toHaveBeenCalled();
+    expect(checkLease).toHaveBeenCalled();
   });
 
-  it("does not bypass lease check when ARMModelingSignedOff label is absent", async () => {
+  it("re-checks lease and returns review-required without setFailed when label present but lease invalid", async () => {
     process.env.GITHUB_WORKSPACE = "/fake/repo";
 
+    const github = createMockGithub();
     const context = createMockContext();
-    context.payload.pull_request = { number: 1, labels: [] };
+    context.payload.pull_request = { number: 42 };
+    context.repo = { owner: "org", repo: "repo" };
+
+    vi.mocked(github.rest.issues.listLabelsOnIssue).mockResolvedValue({
+      data: [{ name: "ARMModelingSignedOff" }],
+    });
 
     vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
       "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
@@ -307,7 +325,34 @@ describe("armModelingReview", () => {
     vi.mocked(mockRaw).mockResolvedValue("");
     vi.mocked(checkLease).mockResolvedValue(false);
 
-    const result = await armModelingReview({ context, core });
+    const result = await armModelingReview({ github, context, core });
+
+    expect(result.status).toBe("new-rp-invalid-lease");
+    expect(result.labelActions.ARMModelingReviewRequired).toBe("add");
+    expect(result.labelActions.ARMModelingSignedOff).toBe("remove");
+    expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
+    // Must NOT fail CI when the label is present — only update labels
+    expect(core.setFailed).not.toHaveBeenCalled();
+    expect(checkLease).toHaveBeenCalled();
+  });
+
+  it("does not suppress setFailed when ARMModelingSignedOff label is absent", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+
+    const github = createMockGithub();
+    const context = createMockContext();
+    context.payload.pull_request = { number: 42 };
+    context.repo = { owner: "org", repo: "repo" };
+
+    vi.mocked(github.rest.issues.listLabelsOnIssue).mockResolvedValue({ data: [] });
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    const result = await armModelingReview({ github, context, core });
 
     expect(result.status).toBe("new-rp-invalid-lease");
     expect(result.labelActions.ARMModelingReviewRequired).toBe("add");
@@ -315,30 +360,7 @@ describe("armModelingReview", () => {
     expect(checkLease).toHaveBeenCalled();
   });
 
-  it("returns manually-signed-off even when no lease exists, if ARMModelingSignedOff label is present", async () => {
-    process.env.GITHUB_WORKSPACE = "/fake/repo";
-
-    const context = createMockContext();
-    context.payload.pull_request = {
-      number: 1,
-      labels: [{ name: "ARMModelingSignedOff" }, { name: "SomeOtherLabel" }],
-    };
-
-    // Even though no changed files are returned, the label bypass should fire first
-    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
-      "specification/newrp/resource-manager/Microsoft.NewRP/stable/2025-01-01/api.json",
-    ]);
-    vi.mocked(mockRaw).mockResolvedValue("");
-    vi.mocked(checkLease).mockResolvedValue(false);
-
-    const result = await armModelingReview({ context, core });
-
-    expect(result.status).toBe("manually-signed-off");
-    expect(core.setFailed).not.toHaveBeenCalled();
-    expect(checkLease).not.toHaveBeenCalled();
-  });
-
-  it("proceeds with normal lease check when context or pull_request payload is missing", async () => {
+  it("proceeds with normal lease check when github is not provided", async () => {
     process.env.GITHUB_WORKSPACE = "/fake/repo";
 
     vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
@@ -347,10 +369,75 @@ describe("armModelingReview", () => {
     vi.mocked(mockRaw).mockResolvedValue("");
     vi.mocked(checkLease).mockResolvedValue(false);
 
-    // No context passed — should fall through to normal flow
     const result = await armModelingReview({ core });
 
     expect(result.status).toBe("new-rp-invalid-lease");
     expect(core.setFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns and continues when GitHub API call fails", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+
+    const github = createMockGithub();
+    const context = createMockContext();
+    context.payload.pull_request = { number: 42 };
+    context.repo = { owner: "org", repo: "repo" };
+
+    vi.mocked(github.rest.issues.listLabelsOnIssue).mockRejectedValue(new Error("API error"));
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    const result = await armModelingReview({ github, context, core });
+
+    // Should warn but continue with normal (non-manually-signed-off) behavior
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("API error"));
+    expect(result.status).toBe("new-rp-invalid-lease");
+    expect(core.setFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses setFailed for new resource types when ARMModelingSignedOff label is present", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+    const rmFile =
+      "specification/compute/resource-manager/Microsoft.Compute/stable/2024-01-01/compute.json";
+
+    const github = createMockGithub();
+    const context = createMockContext();
+    context.payload.pull_request = { number: 42 };
+    context.repo = { owner: "org", repo: "repo" };
+
+    vi.mocked(github.rest.issues.listLabelsOnIssue).mockResolvedValue({
+      data: [{ name: "ARMModelingSignedOff" }],
+    });
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([rmFile]);
+    vi.mocked(mockRaw).mockResolvedValue(rmFile);
+
+    vi.mocked(detectNewResourceTypes).mockResolvedValue([
+      {
+        rpNamespace: "Microsoft.Compute",
+        orgName: "compute",
+        serviceName: "",
+        newResourceTypes: [
+          {
+            resourceType: "Microsoft.Compute/disks",
+            provider: "Microsoft.Compute",
+            modelName: null,
+            operations: ["GET"],
+          },
+        ],
+      },
+    ]);
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    const result = await armModelingReview({ github, context, core });
+
+    expect(result.status).toBe("new-rt-invalid-lease");
+    expect(result.labelActions.ARMModelingReviewRequired).toBe("add");
+    // setFailed suppressed because label is present
+    expect(core.setFailed).not.toHaveBeenCalled();
   });
 });

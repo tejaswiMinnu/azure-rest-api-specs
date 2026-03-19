@@ -123,33 +123,46 @@ function extractResourceProviders(files) {
  * Main detection logic for GitHub script action.
  *
  * @param {Object} params - Parameters from github-script
+ * @param {import('@actions/github-script').AsyncFunctionArguments['github']} [params.github]
  * @param {import('@actions/github-script').AsyncFunctionArguments['context']} [params.context]
  * @param {import('@actions/github-script').AsyncFunctionArguments['core']} params.core
  * @returns {Promise<{ status: string, labelActions: ManagedLabelActions }>}
  */
-export default async function armModelingReview({ context, core }) {
-  // If the PR already has the ARMModelingSignedOff label (manually added by a reviewer),
-  // skip the automated lease check and treat the PR as signed off.
-  const payload = /** @type {import("@octokit/webhooks-types").PullRequestEvent | undefined} */ (
-    context?.payload
-  );
-  const prLabels = payload?.pull_request?.labels ?? [];
-  const isManuallySignedOff = prLabels.some(
-    (label) => label.name === ArmLeaseValidationLabel.ArmModelingSignedOff,
-  );
+export default async function armModelingReview({ github, context, core }) {
+  // Determine whether the PR currently carries the ARMModelingSignedOff label.
+  // We use the GitHub API instead of the event payload because:
+  //  - On manual reruns, the event payload reflects the original trigger event and may
+  //    not include labels that were added afterwards.
+  //  - On `labeled` events the payload IS current, but using the API is consistent.
+  let isManuallySignedOff = false;
+
+  const issueNumber = context?.payload?.pull_request?.number;
+  const repoOwner = context?.repo?.owner;
+  const repositoryName = context?.repo?.repo;
+
+  if (github && issueNumber && repoOwner && repositoryName) {
+    try {
+      const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+        owner: repoOwner,
+        repo: repositoryName,
+        issue_number: issueNumber,
+      });
+      isManuallySignedOff = currentLabels.some(
+        (label) => label.name === ArmLeaseValidationLabel.ArmModelingSignedOff,
+      );
+    } catch (e) {
+      core.warning(
+        `Could not fetch current PR labels from GitHub API: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
 
   if (isManuallySignedOff) {
     core.info(
-      `PR has "${ArmLeaseValidationLabel.ArmModelingSignedOff}" label — skipping automated ARM modeling review.`,
+      `PR has "${ArmLeaseValidationLabel.ArmModelingSignedOff}" label — ` +
+        "re-checking leases with the latest arm-leases files. " +
+        "core.setFailed() will not be called regardless of outcome; labels will be updated.",
     );
-    return {
-      status: "manually-signed-off",
-      labelActions: {
-        [ArmLeaseValidationLabel.ArmModelingReviewRequired]: LabelAction.Remove,
-        [ArmLeaseValidationLabel.ArmModelingSignedOff]: LabelAction.None,
-        [ArmLeaseValidationLabel.ArmModelingAutoSignedOff]: LabelAction.None,
-      },
-    };
   }
 
   const options = {
@@ -218,7 +231,7 @@ export default async function armModelingReview({ context, core }) {
     if (!hasAtLeastOneBrandNewRP) {
       core.info("No brand new resource providers detected, spec directories exist in base branch.");
       core.info("Checking for new resource types in existing RPs...");
-      return await checkNewResourceTypes(rmFiles, core);
+      return await checkNewResourceTypes(rmFiles, core, isManuallySignedOff);
     }
   }
 
@@ -239,7 +252,7 @@ export default async function armModelingReview({ context, core }) {
   if (newResourceProviders.length === 0) {
     core.info("No new resource providers detected.");
     core.info("Checking for new resource types in existing RPs...");
-    return await checkNewResourceTypes(rmFiles, core);
+    return await checkNewResourceTypes(rmFiles, core, isManuallySignedOff);
   }
 
   core.info(`Detected ${newResourceProviders.length} new resource provider(s)`);
@@ -268,16 +281,18 @@ export default async function armModelingReview({ context, core }) {
     for (const rp of invalidLeases) {
       core.error(`${rp.namespace}: ${rp.leaseMessage}`);
     }
-    core.setFailed(
-      `${invalidLeases.length} new resource provider(s) detected without a valid ARM lease. ` +
-        `Please schedule a discussion at ARM API Modeling Office Hours before merging: ${ARM_OFFICE_HOURS_URL}`,
-    );
+    if (!isManuallySignedOff) {
+      core.setFailed(
+        `${invalidLeases.length} new resource provider(s) detected without a valid ARM lease. ` +
+          `Please schedule a discussion at ARM API Modeling Office Hours before merging: ${ARM_OFFICE_HOURS_URL}`,
+      );
+    }
   } else {
     core.info("New resource provider(s) detected with valid ARM lease — no action required.");
   }
 
   core.info("Checking for new resource types in existing RPs...");
-  const newRtResult = await checkNewResourceTypes(rmFiles, core);
+  const newRtResult = await checkNewResourceTypes(rmFiles, core, isManuallySignedOff);
 
   // Merge label actions: 'add' wins over 'remove' wins over 'none'
   /** @type {ManagedLabelActions} */
@@ -307,9 +322,10 @@ export default async function armModelingReview({ context, core }) {
  *
  * @param {string[]} rmFiles - Resource-manager file paths changed in the PR
  * @param {import('@actions/github-script').AsyncFunctionArguments['core']} core
+ * @param {boolean} [isManuallySignedOff] - When true, suppresses core.setFailed() even on invalid leases
  * @returns {Promise<{ status: string, labelActions: ManagedLabelActions }>}
  */
-async function checkNewResourceTypes(rmFiles, core) {
+async function checkNewResourceTypes(rmFiles, core, isManuallySignedOff = false) {
   const newRtResults = await detectNewResourceTypes({
     rmFiles,
     core,
@@ -338,10 +354,12 @@ async function checkNewResourceTypes(rmFiles, core) {
   }
 
   if (!allLeasesValid) {
-    core.setFailed(
-      "New resource types detected without a valid ARM lease. " +
-        `Please schedule a discussion at ARM API Modeling Office Hours before merging: ${ARM_OFFICE_HOURS_URL}`,
-    );
+    if (!isManuallySignedOff) {
+      core.setFailed(
+        "New resource types detected without a valid ARM lease. " +
+          `Please schedule a discussion at ARM API Modeling Office Hours before merging: ${ARM_OFFICE_HOURS_URL}`,
+      );
+    }
   } else {
     core.info("New resource types detected with valid ARM lease — auto-signed-off.");
   }

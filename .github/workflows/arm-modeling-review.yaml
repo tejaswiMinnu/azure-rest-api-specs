@@ -12,6 +12,9 @@ on:
       - reopened
       # re-run if base branch is changed, since previous merge commit may generate incorrect diff
       - edited
+      # re-run when ARMModelingSignedOff label is added so the lease can be re-checked immediately
+      # (unlabeled is intentionally omitted — removing the label does not need a re-check)
+      - labeled
     paths:
       - "specification/**/resource-manager/**"
 
@@ -38,7 +41,7 @@ jobs:
           script: |
             const { default: armModelingReview } =
               await import('${{ github.workspace }}/.github/workflows/src/arm-modeling-review/arm-modeling-review.js');
-            return await armModelingReview({ context, core });
+            return await armModelingReview({ github, context, core });
 
       - name: Upload artifact for ARMModelingReviewRequired label
         if: always() && steps.detect.outputs.result && fromJson(steps.detect.outputs.result).labelActions['ARMModelingReviewRequired'] != 'none'
