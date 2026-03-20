@@ -1,0 +1,44 @@
+parameters:
+  "service-dir":
+    default: "sdk/xyz-insights"
+emit:
+  - "@azure-tools/typespec-autorest"
+options:
+  "@azure-tools/typespec-autorest":
+    use-read-only-status-schema: true
+    emitter-output-dir: "{project-root}"
+    output-file: "{version-status}/{version}/xyzinsights.json"
+    arm-types-dir: "{project-root}/../../../../common-types/resource-management"
+  "@azure-typespec/http-client-csharp-mgmt":
+    namespace: "Azure.ResourceManager.XYZInsights"
+    emitter-output-dir: "{output-dir}/{service-dir}/{namespace}"
+  "@azure-tools/typespec-python":
+    emitter-output-dir: "{output-dir}/{service-dir}/azure-mgmt-xyzinsights"
+    namespace: "azure.mgmt.xyzinsights"
+    generate-test: true
+    generate-sample: true
+    flavor: "azure"
+  "@azure-tools/typespec-java":
+    emitter-output-dir: "{output-dir}/{service-dir}/azure-resourcemanager-xyzinsights"
+    namespace: "com.azure.resourcemanager.xyzinsights"
+    service-name: "XYZInsights"
+    flavor: azure
+  "@azure-tools/typespec-ts":
+    emitter-output-dir: "{output-dir}/{service-dir}/arm-xyzinsights"
+    flavor: azure
+    experimental-extensible-enums: true
+    package-details:
+      name: "@azure/arm-xyzinsights"
+  "@azure-tools/typespec-go":
+    service-dir: "sdk/resourcemanager/xyzinsights"
+    emitter-output-dir: "{output-dir}/{service-dir}/armxyzinsights"
+    module: "github.com/Azure/azure-sdk-for-go/{service-dir}/armxyzinsights"
+    fix-const-stuttering: true
+    flavor: "azure"
+    generate-samples: true
+    generate-fakes: true
+    head-as-boolean: true
+    inject-spans: true
+linter:
+  extends:
+    - "@azure-tools/typespec-azure-rulesets/resource-manager"
