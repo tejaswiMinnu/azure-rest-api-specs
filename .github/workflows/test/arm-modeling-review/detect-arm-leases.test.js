@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import { join } from "path";
+import { relative, resolve } from "path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 /** @type {{ show: import("vitest").MockedFunction<() => Promise<string>>, fetch: import("vitest").MockedFunction<() => Promise<void>> }} */
@@ -170,7 +170,7 @@ describe("detect-arm-leases", () => {
 
       expect(result).toBe(true);
       expect(mockGitInstance.show).toHaveBeenCalledWith([
-        `HEAD^:${join(".github", "arm-leases", "xyz", "Microsoft.XYZ", "XYZ", "lease.yaml")}`,
+        `HEAD^:${relative("/fake/repo", resolve("/fake/repo", ".github", "arm-leases", "xyz", "Microsoft.XYZ", "XYZ", "lease.yaml"))}`,
       ]);
     });
 
@@ -181,7 +181,7 @@ describe("detect-arm-leases", () => {
 
       expect(result).toBe(true);
       expect(mockGitInstance.show).toHaveBeenCalledWith([
-        `HEAD^:${join(".github", "arm-leases", "xyz", "Microsoft.XYZ", "lease.yaml")}`,
+        `HEAD^:${relative("/fake/repo", resolve("/fake/repo", ".github", "arm-leases", "xyz", "Microsoft.XYZ", "lease.yaml"))}`,
       ]);
     });
 
@@ -203,10 +203,10 @@ describe("detect-arm-leases", () => {
       ]);
       expect(mockGitInstance.show).toHaveBeenCalledTimes(2);
       expect(mockGitInstance.show).toHaveBeenNthCalledWith(1, [
-        `HEAD^:${join(".github", "arm-leases", "xyz", "Microsoft.XYZ", "XYZInsights", "lease.yaml")}`,
+        `HEAD^:${relative("/fake/repo", resolve("/fake/repo", ".github", "arm-leases", "xyz", "Microsoft.XYZ", "XYZInsights", "lease.yaml"))}`,
       ]);
       expect(mockGitInstance.show).toHaveBeenNthCalledWith(2, [
-        `origin/main:${join(".github", "arm-leases", "xyz", "Microsoft.XYZ", "XYZInsights", "lease.yaml")}`,
+        `origin/main:${relative("/fake/repo", resolve("/fake/repo", ".github", "arm-leases", "xyz", "Microsoft.XYZ", "XYZInsights", "lease.yaml"))}`,
       ]);
     });
 
