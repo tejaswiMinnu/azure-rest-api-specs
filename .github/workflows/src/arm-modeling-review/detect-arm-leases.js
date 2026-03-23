@@ -1,4 +1,4 @@
-import { relative, resolve } from "path";
+
 import { Temporal } from "@js-temporal/polyfill";
 import yaml from "js-yaml";
 import { simpleGit } from "simple-git";
@@ -36,23 +36,16 @@ const leaseSchema = z.object({
  * - Without service name: `.github/arm-leases/<orgName>/<rpNamespace>/lease.yaml`
  * - With service name:    `.github/arm-leases/<orgName>/<rpNamespace>/<serviceName>/lease.yaml`
  *
- * @param {string} repoRoot - Absolute path to the repository root
  * @param {string} orgName - Organization name (e.g., "compute")
  * @param {string} rpNamespace - Resource provider namespace (e.g., "Microsoft.Compute")
  * @param {string} serviceName - Optional service name for RPs with sub-groupings (e.g., "ComputeRP")
  * @returns {string} Relative path to lease.yaml file (e.g., ".github/arm-leases/compute/Microsoft.Compute/lease.yaml")
  */
-function buildLeaseRelativePath(repoRoot, orgName, rpNamespace, serviceName = "") {
+function buildLeaseRelativePath(orgName, rpNamespace, serviceName = "") {
   if (serviceName) {
-    return relative(
-      repoRoot,
-      resolve(repoRoot, ".github", "arm-leases", orgName, rpNamespace, serviceName, "lease.yaml"),
-    );
+    return [".github", "arm-leases", orgName, rpNamespace, serviceName, "lease.yaml"].join("/");
   }
-  return relative(
-    repoRoot,
-    resolve(repoRoot, ".github", "arm-leases", orgName, rpNamespace, "lease.yaml"),
-  );
+  return [".github", "arm-leases", orgName, rpNamespace, "lease.yaml"].join("/");
 }
 
 /**
@@ -107,7 +100,7 @@ export function parseLease(content) {
  */
 export async function checkLease(orgName, rpNamespace, serviceName = "") {
   const repoRoot = await getRootFolder(process.cwd());
-  const relLeasePath = buildLeaseRelativePath(repoRoot, orgName, rpNamespace, serviceName);
+  const relLeasePath = buildLeaseRelativePath(orgName, rpNamespace, serviceName);
 
   const git = simpleGit(repoRoot);
 
