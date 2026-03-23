@@ -105,14 +105,21 @@ export async function checkLease(orgName, rpNamespace, serviceName = "") {
   const git = simpleGit(repoRoot);
 
   // Try reading from HEAD^ (the base-branch parent of the merge commit).
-  // This is the common case when the lease was merged before the PR's merge commit was generated.
+  // If the lease is valid here, we're done — no network round-trip needed.
+  // If the lease is missing OR invalid/expired, fall through to check origin/<baseBranch>
+  // because a newer valid lease may have been merged to the base branch after the PR's
+  // merge commit was last generated (stale merge commit scenario).
   try {
     const content = await git.show([`HEAD^:${relLeasePath}`]);
-    return parseLease(content).valid;
+    if (parseLease(content).valid) {
+      return true;
+    }
+    // Lease exists at HEAD^ but is invalid/expired — a refreshed lease may have been
+    // merged since the merge commit was generated.  Fall through to origin/<baseBranch>.
   } catch {
     // Expected when the lease file is absent from HEAD^ — this happens when the PR's merge
     // commit is stale (the lease was merged to the base branch after the last PR push).
-    // Fall back to origin/<baseBranch> after fetching latest.
+    // Fall through to origin/<baseBranch> after fetching latest.
   }
 
   const baseBranch = process.env.GITHUB_BASE_REF;

@@ -209,6 +209,51 @@ describe("detect-arm-leases", () => {
       ]);
     });
 
+    it("falls back to origin/<baseBranch> when HEAD^ has an expired lease but origin has a newer valid lease", async () => {
+      vi.stubEnv("GITHUB_BASE_REF", "main");
+
+      // Simulates: lease PR merged to main AFTER the stale merge commit was generated.
+      // HEAD^ has the file but with an expired lease; origin/main has the refreshed valid lease.
+      mockGitInstance.show
+        .mockResolvedValueOnce(leaseYaml(daysAgo(100), "P90D")) // HEAD^ — expired
+        .mockResolvedValueOnce(leaseYaml(daysAgo(30), "P90D")); // origin/main — valid
+      mockGitInstance.fetch.mockResolvedValue();
+
+      const result = await checkLease("xyz", "Microsoft.XYZ");
+      expect(result).toBe(true);
+      expect(mockGitInstance.fetch).toHaveBeenCalledWith([
+        "origin",
+        "main:refs/remotes/origin/main",
+        "--depth=1",
+      ]);
+      expect(mockGitInstance.show).toHaveBeenCalledTimes(2);
+    });
+
+    it("falls back to origin/<baseBranch> when HEAD^ has an invalid lease format but origin has a valid lease", async () => {
+      vi.stubEnv("GITHUB_BASE_REF", "main");
+
+      mockGitInstance.show
+        .mockResolvedValueOnce("invalid: yaml: content") // HEAD^ — invalid
+        .mockResolvedValueOnce(leaseYaml(daysAgo(30), "P90D")); // origin/main — valid
+      mockGitInstance.fetch.mockResolvedValue();
+
+      const result = await checkLease("xyz", "Microsoft.XYZ");
+      expect(result).toBe(true);
+      expect(mockGitInstance.show).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns false when HEAD^ has an expired lease and origin also has an expired lease", async () => {
+      vi.stubEnv("GITHUB_BASE_REF", "main");
+
+      mockGitInstance.show
+        .mockResolvedValueOnce(leaseYaml(daysAgo(100), "P90D")) // HEAD^ — expired
+        .mockResolvedValueOnce(leaseYaml(daysAgo(200), "P90D")); // origin/main — also expired
+      mockGitInstance.fetch.mockResolvedValue();
+
+      const result = await checkLease("testservice", "Microsoft.Test");
+      expect(result).toBe(false);
+    });
+
     it("returns false when both HEAD^ and origin/<baseBranch> do not have the lease", async () => {
       vi.stubEnv("GITHUB_BASE_REF", "main");
       mockGitInstance.fetch.mockResolvedValue();
