@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMockCore } from "../mocks.js";
+import {
+  createMockContext,
+  createMockCore,
+  createMockGithub,
+  createMockRequestError,
+} from "../mocks.js";
 
 /** @type {import("vitest").MockedFunction<import("simple-git").SimpleGit["raw"]>} */
 const mockRaw = vi.hoisted(() => vi.fn().mockResolvedValue(""));
@@ -17,11 +22,19 @@ vi.mock("../../src/arm-modeling-review/detect-new-resource-types.js", () => ({
 }));
 
 import * as changedFiles from "../../../shared/src/changed-files.js";
+import armModelingReview, {
+  applyLabelsToPR,
+} from "../../src/arm-modeling-review/arm-modeling-review.js";
 import { checkLease } from "../../src/arm-modeling-review/detect-arm-leases.js";
-import armModelingReview from "../../src/arm-modeling-review/arm-modeling-review.js";
 import { detectNewResourceTypes } from "../../src/arm-modeling-review/detect-new-resource-types.js";
-
 const core = createMockCore();
+
+/** Helper to build a minimal pull_request context for testing direct label application */
+function createPRContext(prNumber = 42) {
+  const context = createMockContext();
+  context.payload = { pull_request: { number: prNumber } };
+  return context;
+}
 
 describe("armModelingReview", () => {
   afterEach(() => {
@@ -272,5 +285,224 @@ describe("armModelingReview", () => {
     expect(result.status).toBe("no-new-rp");
     expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
+  });
+
+  // ── Direct label application ─────────────────────────────────────────
+
+  it("applies ARMModelingReviewRequired label directly to PR when lease is invalid", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+    const github = createMockGithub();
+    const context = createPRContext(99);
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    await armModelingReview({ github, context, core });
+
+    expect(github.rest.issues.addLabels).toHaveBeenCalledWith({
+      owner: "owner",
+      repo: "repo",
+      issue_number: 99,
+      labels: ["ARMModelingReviewRequired"],
+    });
+    expect(github.rest.issues.removeLabel).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "ARMModelingSignedOff" }),
+    );
+    expect(github.rest.issues.removeLabel).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "ARMModelingAutoSignedOff" }),
+    );
+  });
+
+  it("removes ARMModelingReviewRequired and adds ARMModelingAutoSignedOff when lease is valid", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+    const github = createMockGithub();
+    const context = createPRContext(7);
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(true);
+
+    await armModelingReview({ github, context, core });
+
+    expect(github.rest.issues.addLabels).toHaveBeenCalledWith({
+      owner: "owner",
+      repo: "repo",
+      issue_number: 7,
+      labels: ["ARMModelingAutoSignedOff"],
+    });
+    expect(github.rest.issues.removeLabel).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "ARMModelingReviewRequired" }),
+    );
+  });
+
+  it("does not call GitHub API when github parameter is not provided", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+    const github = createMockGithub();
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    // No github / context provided — simulates the artifact-only path
+    await armModelingReview({ core });
+
+    expect(github.rest.issues.addLabels).not.toHaveBeenCalled();
+    expect(github.rest.issues.removeLabel).not.toHaveBeenCalled();
+  });
+
+  it("logs info and continues when direct label application fails (e.g. fork PR)", async () => {
+    process.env.GITHUB_WORKSPACE = "/fake/repo";
+    const github = createMockGithub();
+    const context = createPRContext(5);
+
+    vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
+      "specification/svc/resource-manager/Microsoft.Svc/stable/2025-01-01/api.json",
+    ]);
+    vi.mocked(mockRaw).mockResolvedValue("");
+    vi.mocked(checkLease).mockResolvedValue(false);
+
+    // Simulate a 403 Forbidden (fork PR scenario)
+    vi.mocked(github.rest.issues.addLabels).mockRejectedValue(createMockRequestError(403));
+
+    const result = await armModelingReview({ github, context, core });
+
+    // Should not rethrow; result should still be correct
+    expect(result.status).toBe("new-rp-invalid-lease");
+    expect(result.labelActions.ARMModelingReviewRequired).toBe("add");
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining("Could not add labels directly to PR"),
+    );
+  });
+});
+
+describe("applyLabelsToPR", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("adds labels marked as 'add' and removes labels marked as 'remove'", async () => {
+    const github = createMockGithub();
+    const context = createPRContext(10);
+
+    await applyLabelsToPR({
+      github,
+      context,
+      core,
+      labelActions: {
+        ARMModelingReviewRequired: "add",
+        ARMModelingSignedOff: "remove",
+        ARMModelingAutoSignedOff: "none",
+      },
+    });
+
+    expect(github.rest.issues.addLabels).toHaveBeenCalledWith({
+      owner: "owner",
+      repo: "repo",
+      issue_number: 10,
+      labels: ["ARMModelingReviewRequired"],
+    });
+    expect(github.rest.issues.removeLabel).toHaveBeenCalledWith({
+      owner: "owner",
+      repo: "repo",
+      issue_number: 10,
+      name: "ARMModelingSignedOff",
+    });
+    // 'none' labels should not trigger any API calls
+    expect(github.rest.issues.addLabels).toHaveBeenCalledTimes(1);
+    expect(github.rest.issues.removeLabel).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips API calls when context has no pull_request payload", async () => {
+    const github = createMockGithub();
+    const context = createMockContext(); // no pull_request in payload
+
+    await applyLabelsToPR({
+      github,
+      context,
+      core,
+      labelActions: {
+        ARMModelingReviewRequired: "add",
+        ARMModelingSignedOff: "remove",
+        ARMModelingAutoSignedOff: "none",
+      },
+    });
+
+    expect(github.rest.issues.addLabels).not.toHaveBeenCalled();
+    expect(github.rest.issues.removeLabel).not.toHaveBeenCalled();
+  });
+
+  it("skips API calls when github is not provided", async () => {
+    const github = createMockGithub();
+    const context = createPRContext(3);
+
+    await applyLabelsToPR({
+      github: undefined,
+      context,
+      core,
+      labelActions: {
+        ARMModelingReviewRequired: "add",
+        ARMModelingSignedOff: "remove",
+        ARMModelingAutoSignedOff: "none",
+      },
+    });
+
+    expect(github.rest.issues.addLabels).not.toHaveBeenCalled();
+    expect(github.rest.issues.removeLabel).not.toHaveBeenCalled();
+  });
+
+  it("ignores 404 when removing a label that is not present on the PR", async () => {
+    const github = createMockGithub();
+    const context = createPRContext(11);
+
+    vi.mocked(github.rest.issues.removeLabel).mockRejectedValue(createMockRequestError(404));
+
+    // Should not throw
+    await expect(
+      applyLabelsToPR({
+        github,
+        context,
+        core,
+        labelActions: {
+          ARMModelingReviewRequired: "none",
+          ARMModelingSignedOff: "remove",
+          ARMModelingAutoSignedOff: "none",
+        },
+      }),
+    ).resolves.not.toThrow();
+
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Label "ARMModelingSignedOff" not present on PR'),
+    );
+  });
+
+  it("logs and continues when removeLabel returns a non-404 error", async () => {
+    const github = createMockGithub();
+    const context = createPRContext(12);
+
+    vi.mocked(github.rest.issues.removeLabel).mockRejectedValue(createMockRequestError(403));
+
+    await expect(
+      applyLabelsToPR({
+        github,
+        context,
+        core,
+        labelActions: {
+          ARMModelingReviewRequired: "none",
+          ARMModelingSignedOff: "remove",
+          ARMModelingAutoSignedOff: "none",
+        },
+      }),
+    ).resolves.not.toThrow();
+
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Could not remove label "ARMModelingSignedOff" directly from PR'),
+    );
   });
 });

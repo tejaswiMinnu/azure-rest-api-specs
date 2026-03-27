@@ -122,11 +122,97 @@ function extractResourceProviders(files) {
 /**
  * Main detection logic for GitHub script action.
  *
+ * Detects new ARM resource providers and resource types, validates ARM leases,
+ * applies labels directly to the PR when the GitHub token has sufficient
+ * permissions (e.g. for non-fork PRs), and also uploads label artifacts for
+ * the update-labels workflow.
+ *
  * @param {Object} params - Parameters from github-script
+ * @param {import('@actions/github-script').AsyncFunctionArguments['github']} [params.github]
+ * @param {import('@actions/github-script').AsyncFunctionArguments['context']} [params.context]
  * @param {import('@actions/github-script').AsyncFunctionArguments['core']} params.core
  * @returns {Promise<{ status: string, labelActions: ManagedLabelActions }>}
  */
-export default async function armModelingReview({ core }) {
+export default async function armModelingReview({ github, context, core }) {
+  const result = await detectLabelActions({ core });
+  await applyLabelsToPR({ github, context, core, labelActions: result.labelActions });
+  return result;
+}
+
+/**
+ * Apply labels directly to the PR via the GitHub API.
+ *
+ * This is a best-effort approach: if the GITHUB_TOKEN lacks write access
+ * (e.g., for fork PRs in the main repo), the API call will fail with a
+ * permissions error and the function will log it and move on. Labels will
+ * still be applied via the artifact-based update-labels workflow when it
+ * is able to run.
+ *
+ * @param {Object} params
+ * @param {import('@actions/github-script').AsyncFunctionArguments['github'] | undefined} params.github
+ * @param {import('@actions/github-script').AsyncFunctionArguments['context'] | undefined} params.context
+ * @param {import('@actions/github-script').AsyncFunctionArguments['core']} params.core
+ * @param {ManagedLabelActions} params.labelActions
+ */
+export async function applyLabelsToPR({ github, context, core, labelActions }) {
+  if (!github || !context?.payload?.pull_request) {
+    return;
+  }
+
+  const { owner, repo } = context.repo;
+  const issue_number = /** @type {number} */ (context.payload.pull_request.number);
+
+  const labelsToAdd = /** @type {string[]} */ (
+    Object.entries(labelActions)
+      .filter(([, action]) => action === LabelAction.Add)
+      .map(([label]) => label)
+  );
+
+  const labelsToRemove = /** @type {string[]} */ (
+    Object.entries(labelActions)
+      .filter(([, action]) => action === LabelAction.Remove)
+      .map(([label]) => label)
+  );
+
+  if (labelsToAdd.length > 0) {
+    try {
+      await github.rest.issues.addLabels({ owner, repo, issue_number, labels: labelsToAdd });
+      core.info(`Applied labels directly to PR: added [${labelsToAdd.join(", ")}]`);
+    } catch (error) {
+      core.info(
+        `Could not add labels directly to PR (will be applied via update-labels workflow): ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  for (const name of labelsToRemove) {
+    try {
+      await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+      core.info(`Applied labels directly to PR: removed "${name}"`);
+    } catch (error) {
+      if (error instanceof Error && "status" in error && error.status === 404) {
+        core.info(`Label "${name}" not present on PR, skipping removal`);
+      } else {
+        core.info(
+          `Could not remove label "${name}" directly from PR (will be applied via update-labels workflow): ` +
+            `${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Core detection logic: detects new ARM resource providers / resource types,
+ * validates ARM leases, calls core.setFailed() when issues are found, and
+ * returns the computed label actions.
+ *
+ * @param {Object} params
+ * @param {import('@actions/github-script').AsyncFunctionArguments['core']} params.core
+ * @returns {Promise<{ status: string, labelActions: ManagedLabelActions }>}
+ */
+async function detectLabelActions({ core }) {
   const options = {
     cwd: process.env.GITHUB_WORKSPACE,
     paths: ["specification"],
