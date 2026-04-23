@@ -17,8 +17,8 @@ vi.mock("../../src/arm-modeling-review/detect-new-resource-types.js", () => ({
 }));
 
 import * as changedFiles from "../../../shared/src/changed-files.js";
-import { checkLease } from "../../src/arm-modeling-review/detect-arm-leases.js";
 import armModelingReview from "../../src/arm-modeling-review/arm-modeling-review.js";
+import { checkLease } from "../../src/arm-modeling-review/detect-arm-leases.js";
 import { detectNewResourceTypes } from "../../src/arm-modeling-review/detect-new-resource-types.js";
 
 const core = createMockCore();
@@ -173,7 +173,13 @@ describe("armModelingReview", () => {
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
   });
 
-  it("returns Remove for ARMModelingReviewRequired when new RP has valid lease", async () => {
+  it("removes ARMModelingSignedOff and adds ARMModelingAutoSignedOff when new RP has valid lease", async () => {
+    // Key scenario: user added ARMModelingSignedOff as a re-check trigger after merging the
+    // lease file to main. Workflow re-runs, finds the lease, and should:
+    //   - pass (no setFailed)
+    //   - remove ARMModelingSignedOff (the trigger label)
+    //   - add ARMModelingAutoSignedOff (valid lease confirmed)
+    //   - remove ARMModelingReviewRequired
     process.env.GITHUB_WORKSPACE = "/fake/repo";
 
     vi.spyOn(changedFiles, "getChangedFiles").mockResolvedValue([
@@ -184,9 +190,11 @@ describe("armModelingReview", () => {
 
     const result = await armModelingReview({ core });
 
+    expect(result.status).toBe("new-rp-all-leases-valid");
     expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
     expect(result.labelActions.ARMModelingSignedOff).toBe("remove");
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("add");
+    expect(core.setFailed).not.toHaveBeenCalled();
   });
 
   // ── New resource type detection (no new RP) ──────────────────────────
@@ -271,6 +279,7 @@ describe("armModelingReview", () => {
 
     expect(result.status).toBe("no-new-rp");
     expect(result.labelActions.ARMModelingReviewRequired).toBe("remove");
+    expect(result.labelActions.ARMModelingSignedOff).toBe("remove");
     expect(result.labelActions.ARMModelingAutoSignedOff).toBe("remove");
   });
 });

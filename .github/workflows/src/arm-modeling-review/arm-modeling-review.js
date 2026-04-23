@@ -78,6 +78,8 @@ function getLabelActions(outcome) {
   if (outcome === "auto-signed-off") {
     return {
       [ArmLeaseValidationLabel.ArmModelingReviewRequired]: LabelAction.Remove,
+      // Remove ARMModelingSignedOff (it is used as a re-check trigger; once the lease is
+      // confirmed valid, replace it with ARMModelingAutoSignedOff).
       [ArmLeaseValidationLabel.ArmModelingSignedOff]: LabelAction.Remove,
       [ArmLeaseValidationLabel.ArmModelingAutoSignedOff]: LabelAction.Add,
     };
