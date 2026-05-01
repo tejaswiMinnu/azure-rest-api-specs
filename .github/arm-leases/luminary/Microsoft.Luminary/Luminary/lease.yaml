@@ -1,5 +1,0 @@
-lease:
-  resource-provider: Microsoft.Luminary
-  startdate: "2026-04-30"
-  duration: P180D
-  reviewer: "@tejaswiMinnu"
