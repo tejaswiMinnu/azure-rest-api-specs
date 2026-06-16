@@ -20,8 +20,7 @@ model EmployeeProperties {
   /** Age of employee in years. */
   age?: int32;
 
-  /** City where the employee is located. */
-  city?: string;
+  // BREAKING CHANGE: Removed 'city' property to test breaking change flow
 
   /** Binary profile data of the employee encoded in base64url format. */
   @encode("base64url")
