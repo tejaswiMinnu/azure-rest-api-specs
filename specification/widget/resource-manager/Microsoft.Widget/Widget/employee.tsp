@@ -20,33 +20,33 @@ model EmployeeProperties {
   /** Age of employee in years. */
   age?: int32;
 
-  /** City of employee */
+  /** City where the employee is located. */
   city?: string;
 
-  /** Profile of employee */
+  /** Binary profile data of the employee encoded in base64url format. */
   @encode("base64url")
   profile?: bytes;
 
-  /** The status of the last operation. */
+  /** The current provisioning state of the employee resource. */
   @visibility(Lifecycle.Read)
   provisioningState?: ProvisioningState;
 }
 
-/** The resource provisioning state. */
+/** The resource provisioning state indicating the current status of an async operation. */
 @lroStatus
 union ProvisioningState {
   ResourceProvisioningState,
 
-  /** The resource is being provisioned */
+  /** The resource is currently being provisioned. */
   Provisioning: "Provisioning",
 
-  /** The resource is updating */
+  /** The resource is currently being updated. */
   Updating: "Updating",
 
-  /** The resource is being deleted */
+  /** The resource is currently being deleted. */
   Deleting: "Deleting",
 
-  /** The resource create request has been accepted */
+  /** The resource create request has been accepted and is pending. */
   Accepted: "Accepted",
 
   string,
