@@ -2,15 +2,15 @@
 
 > see https://aka.ms/autorest
 
-This is the AutoRest configuration file for Widget.
+This is the AutoRest configuration file for the Widget Resource Provider.
 
 ## Configuration
 
 ### Basic Information
 
-This is a TypeSpec project so we only want to readme to default the default tag and point to the outputted swagger file.
-This is used for some tools such as doc generation and swagger apiview generation it isn't used for SDK code gen as we
-use the native TypeSpec code generation configured in the tspconfig.yaml file.
+This is a TypeSpec-based project. The readme file is used to configure the default tag and reference the generated swagger files.
+This configuration is primarily used for documentation generation and swagger API view generation.
+SDK code generation uses the native TypeSpec configuration specified in the tspconfig.yaml file.
 
 ```yaml
 openapi-type: arm
