@@ -10,14 +10,14 @@ using Azure.ResourceManager;
 
 namespace Microsoft.Widget;
 
-/** Employee resource */
+/** Employee resource representing a worker in the organization. */
 model Employee is TrackedResource<EmployeeProperties> {
   ...ResourceNameParameter<Employee>;
 }
 
-/** Employee properties */
+/** Employee properties containing personal and professional details. */
 model EmployeeProperties {
-  /** Age of employee */
+  /** Age of employee in years. */
   age?: int32;
 
   /** City of employee */
