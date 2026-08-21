@@ -15,11 +15,12 @@
     "test:ci": "vitest run --coverage --reporter=verbose"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.14.1"
   },
   "dependencies": {
     "@actions/core": "^3.0.0",
     "@azure-tools/specs-shared": "file:../../../.github/shared",
+    "@azure-tools/suppressions": "file:../suppressions",
     "@azure/oad": "0.12.4"
   },
   "devDependencies": {
